@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Advanced Mind Map</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      html, body, canvas {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .context {
+        display: none;
+        width: 350px;
+        position: absolute;
+        background: #ddd;
+        box-shadow: 3px 3px 3px rgba(0,0,0, 0.2);
+      }
+      .context ul {
+        display: block;
+        margin: 0;
+        padding: 0;
+      }
+      .context ul li {
+        margin: 0;
+        padding: 0.1em;
+        border-bottom: 1px solid #fff;
+        list-style: none;
+      }
+      .context ul li label,
+      .context ul li input,
+      .context ul li textarea,
+      .context ul li button {
+        display: inline-block;
+        box-sizing: border-box;
+      }
+      .context ul li label {
+        width: 30%;
+      }
+      .context ul li input {
+        width: 55%;
+      }
+      .context ul li textarea {
+        width: 100%;
+      }
+      .context ul li button {
+        width: 15%;
+      }
+      .context h1 {
+        font-size: 100%;
+        font-weight: 600;
+        text-decoration: underline;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="context" style="left: calc(50% - 175px);top: 100px;display:block;">
+      <h1>Advanced Mind Map</h1>
+      <p>You can create nodes by left-clicking the canvas.</p>
+      <p>Deleting nodes is done by right-clicking the node.</p>
+      <p>Import and export are avaible by right-clicking an empty space.</p>
+      <button onclick="this.parentNode.removeAttribute('style')">CLOSE</button>
+    </div>
+    <div class="context" id="context"><ul></ul></div>
+    <div class="context" id="hover"><h1></h1><p></p></div>
+    <div class="context" id="menu"><ul><li>Save</li><li><label>Import</label><input type="file"/><button>&check;</button></li></div>
+    <script>
+      // https://gist.github.com/0x263b/2bdd90886c2036a1ad5bcf06d6e6fb37
+      String.prototype.toHex = function () {
+        var hash = 0;
+        for (var i = 0; i < this.length; i++) {
+          hash = this.charCodeAt(i) + ((hash << 5) - hash);
+          hash = hash & hash;
+        }
+        var color = '#';
+        for (var i = 0; i < 3; i++) {
+          var value = (hash >> (i * 8)) & 255;
+          color += ('00' + value.toString(16)).substr(-2);
+        }
+        return color;
+      }
+    </script>
+    <script>
+      (() => {
+        const canvas = document.createElement('canvas');
+        canvas.setAttribute('height', window.innerHeight);
+        canvas.setAttribute('width', window.innerWidth);
+        document.body.appendChild(canvas);
+        const context = canvas.getContext('2d');
+        context.font = '12px monospace';
+        let types = JSON.parse(localStorage.getItem('types') || '{}') || {};
+        let connections = JSON.parse(localStorage.getItem('connections') || '[]') || [];
+        let nodes = JSON.parse(localStorage.getItem('nodes') || '[]') || [];
+        const redraw = () => {
+          context.fillStyle = '#fff';
+          context.fillRect(0, 0, window.innerWidth, window.innerHeight);
+          context.strokeStyle = '#000';
+          for (const connection of connections) {
+            context.beginPath();
+            context.moveTo(connection.x1, connection.y1);
+            context.lineTo(connection.x2, connection.y2);
+            context.stroke();
+            context.strokeText(connection.name, (connection.x1 + connection.x2) / 2,(connection.y1 + connection.y2) / 2);
+          }
+          const usedTypes = [];
+          for (const node of nodes) {
+            usedTypes.push(node.type);
+            context.fillStyle = node.type.toHex();
+            context.fillRect(node.x, node.y, node.width, node.height);
+            context.strokeStyle = (parseInt(node.type.toHex().substr(1), 16) > 0xffffff/2) ? '#000' : '#fff';
+            context.strokeText(node.name, node.x + 5, node.y + 15);
+          }
+          for (const key of Object.keys(types)) {
+            if (usedTypes.indexOf(key) === -1) {
+              delete types[key];
+            }
+          }
+        };
+        const createLi = (element, attr, deletable) => {
+          const li = document.createElement('li');
+          li.appendChild(document.createElement('label'));
+          li.appendChild(document.createElement('input'));
+          li.firstChild.innerText = attr;
+          li.lastChild.setAttribute('name', attr);
+          li.lastChild.setAttribute('value', element[attr] || '');
+          if (deletable) {
+            li.appendChild(document.createElement('button'));
+            li.lastChild.innerText = '-';
+            li.lastChild.onclick = () => {
+              types[element.type].splice(types[element.type].indexOf(attr), 1);
+              showNode(element, true);
+            };
+          }
+          return li;
+        };
+        const showConnection = (connection) => {
+          const el = document.getElementById('context');
+          el.setAttribute('style', 'display:block;left:' + event.pageX + 'px;top:' + event.pageY + 'px');
+          while (el.firstChild.firstChild) {
+            el.firstChild.removeChild(el.firstChild.firstChild);
+          }
+          for (const attr of ['name', 'description']) {
+            let c = createLi(connection, attr);
+            el.firstChild.appendChild(c);
+            el.firstChild.lastChild.onchange = () => {
+              connection[attr] = c.lastChild.value;
+            };
+          }
+          el.firstChild.firstChild.lastChild.onchange = () => {
+            connection.name = el.firstChild.firstChild.lastChild.value;
+            redraw();
+          };
+        };
+        const showNode = (node, second) => {
+          const el = document.getElementById('context');
+          if (!second) {
+            el.setAttribute('style', 'display:block;left:' + event.pageX + 'px;top:' + event.pageY + 'px');
+          }
+          while (el.firstChild.firstChild) {
+            el.firstChild.removeChild(el.firstChild.firstChild);
+          }
+          for (const attr of ['name', 'description', 'type']) {
+            let c = createLi(node, attr);
+            el.firstChild.appendChild(c);
+            el.firstChild.lastChild.onchange = () => {
+              node[attr] = c.lastChild.value;
+            };
+          }
+          el.firstChild.children[1].removeChild(el.firstChild.children[1].lastChild);
+          el.firstChild.children[1].appendChild(document.createElement('textarea'));
+          el.firstChild.children[1].lastChild.innerText = node.description;
+          el.firstChild.children[1].lastChild.onchange = () => {
+            node.description = el.firstChild.children[1].lastChild.lastChild.value;
+          };
+          el.firstChild.appendChild((() => {
+            const li = document.createElement('li');
+            li.appendChild(document.createElement('button'));
+            li.lastChild.innerText = '+';
+            li.lastChild.onclick = () => {
+              if (!node.type) {
+                return;
+              }
+              const at = prompt('Attribute to add to type:', '');
+              if (at) {
+                types[node.type] = types[node.type] || [];
+                types[node.type].push(at);
+                showNode(node, true);
+              }
+            };
+            li.appendChild(document.createElement('button'));
+            li.lastChild.innerText = '∞';
+            li.lastChild.onclick = () => {
+              const target = node;
+              if (nodes.length < 2) {
+                return;
+              }
+              const connect = prompt('Connect to:', '');
+              if (connect) {
+                let found = undefined;
+                for (const node of nodes) {
+                  if (node.name === connect && node.id !== target.id) {
+                    let skip = false;
+                    for (const connection of connections) {
+                      if ((connection.x1 === node.x && connection.y1 === node.y && connection.x2 === target.x && connection.y2 === target.y) || (connection.x2 === node.x && connection.y2 === node.y && connection.x1 === target.x && connection.y1 === target.y)) {
+                        skip = true;
+                      }
+                    }
+                    if (!skip) {
+                      found = node;
+                      break;
+                    }
+                  }
+                }
+                if (!found) {
+                  return;
+                }
+                if (target.x <= found.x) {
+                connections.push({
+                  x1: target.x,
+                  y1: target.y,
+                  x2: found.x,
+                  y2: found.y,
+                  name: '',
+                  description: '',
+                  id: connections.length
+                });
+              } else {
+                connections.push({
+                  x1: found.x,
+                  y1: found.y,
+                  x2: target.x,
+                  y2: target.y,
+                  name: '',
+                  description: '',
+                  id: connections.length
+                });
+              }
+                redraw();
+              }
+            };
+            return li;
+          })());
+          el.firstChild.firstChild.lastChild.onchange = () => {
+            node.name = el.firstChild.firstChild.lastChild.value;
+            node.width = 24 + 6 * node.name.length;
+            redraw();
+          };
+          el.firstChild.children[2].lastChild.onchange = () => {
+            node.type = el.firstChild.children[2].lastChild.value;
+            redraw();
+            showNode(node, true);
+          };
+          for (const attr of types[node.type] || []) {
+            let c = createLi(node.attributes, attr, true);
+            el.firstChild.appendChild(c);
+            el.firstChild.lastChild.onchange = () => {
+              node.attributes[attr] = c.children[1].value;
+            };
+          }
+        };
+        const isOnConnection = (area, x, y) => {
+          if (area.x2 < area.x1) {
+            const tx = area.x1;
+            area.x1 = area.x2;
+            area.x2 = tx;
+            const ty = area.y1;
+            area.y1 = area.y2;
+            area.y2 = ty;
+          }
+          if (x > area.x2 +10 || x < area.x1 -10) {
+            return false;
+          }
+          if (area.y1 < area.y2) {
+            if (y > area.y2 +10 || y < area.y1 -10) {
+              return false;
+            }
+            const delta = (area.y1 - area.y2) / (area.x1 - area.x2);
+            const expectedMax = delta * (x - area.x1 +10) + area.y1;
+            const expectedMin = delta * (x - area.x1 -10) + area.y1;
+            return expectedMin-10 < y && expectedMax+10 > y;
+          }
+          if (y < area.y2 +10 || y > area.y1 -10) {
+            return false;
+          }
+          const delta = (area.y1 - area.y2) / (area.x1 - area.x2);
+          const expectedMin = delta * (x - area.x1 +10) + area.y1;
+          const expectedMax = delta * (x - area.x1 -10) + area.y1;
+          return expectedMin-10 < y && expectedMax+10 > y;
+        };
+        canvas.onmouseout = () => {
+          document.getElementById('hover').removeAttribute('style');
+        };
+        canvas.onmousemove = () => {
+          const el = document.getElementById('hover');
+          for (const area of nodes) {
+            if (event.pageX >= area.x && event.pageX <= area.x + area.width && event.pageY >= area.y && event.pageY <= area.y + area.height) {
+              el.setAttribute('style', 'display:block;top:'+(event.pageY+5)+'px;left:'+event.pageX+'px');
+              el.firstChild.innerText=area.name;
+              el.lastChild.innerText=area.description;
+              return;
+            }
+          }
+          el.removeAttribute('style');
+        };
+        canvas.oncontextmenu = () => {
+          event.preventDefault();
+          document.getElementById('hover').removeAttribute('style');
+          document.getElementById('context').removeAttribute('style');
+          for (const area of nodes) {
+            if (event.pageX >= area.x && event.pageX <= area.x + area.width && event.pageY >= area.y && event.pageY <= area.y + area.height) {
+              if (!confirm(`Delete node "${area.name}"?`)) {
+                return;
+              }
+              nodes.splice(nodes.indexOf(area), 1);
+              for (const connection of connections) {
+                if (connection.x1 === area.x && connection.y1 === area.y) {
+                  connections.splice(nodes.indexOf(connection), 1);
+                }
+                if (connection.x2 === area.x && connection.y2 === area.y) {
+                  connections.splice(nodes.indexOf(connection), 1);
+                }
+              }
+              redraw();
+              return;
+            }
+            for (const area of connections) {
+              if (isOnConnection(area, event.pageX, event.pageY)) {
+                if (!confirm(`Delete connection "${area.name}"?`)) {
+                  return;
+                }
+                connections.splice(nodes.indexOf(area), 1);
+                redraw();
+                return;
+              }
+            }
+          }
+          for (const area of connections) {
+            if (event.pageX >= area.x && event.pageX <= area.x + area.width && event.pageY >= area.y && event.pageY <= area.y + area.height) {
+              connections.splice(nodes.indexOf(area), 1);
+              redraw();
+              return;
+            }
+          }
+          const el = document.getElementById('menu');
+          el.setAttribute('style', 'display:block;top:'+(event.pageY+5)+'px;left:'+event.pageX+'px');
+          el.firstChild.firstChild.onclick = () => {
+            // https://ourcodeworld.com/articles/read/189/how-to-create-a-file-and-generate-a-download-with-javascript-in-the-browser-without-a-server
+            const element = document.createElement('a');
+            element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(JSON.stringify({types, nodes, connections})));
+            element.setAttribute('download', 'advanced-mindmap-save.json');
+            element.style.display = 'none';
+            document.body.appendChild(element);
+            element.click();
+            document.body.removeChild(element);
+            el.removeAttribute('style');
+          };
+          el.firstChild.lastChild.lastChild.onclick = () => {
+            //https://50linesofco.de/post/2019-07-05-reading-local-files-with-javascript
+            const files = el.firstChild.lastChild.children[1].files;
+            if (files.length === 0) {
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+              console.log(reader.result);
+              const data = JSON.parse(reader.result);
+              types = data.types || [];
+              nodes = data.nodes || [];
+              connections = data.connections || [];
+              redraw();
+              el.removeAttribute('style');
+            };
+            reader.readAsText(files[0]);
+          };
+        };
+        canvas.onclick = () => {
+          event.preventDefault();
+          document.getElementById('menu').removeAttribute('style');
+          for (const area of nodes) {
+            if (event.pageX >= area.x && event.pageX <= area.x + area.width && event.pageY >= area.y && event.pageY <= area.y + area.height) {
+              showNode(area);
+              return;
+            }
+          }
+          for (const area of connections) {
+            if (isOnConnection(area, event.pageX, event.pageY)) {
+              showConnection(area);
+              return;
+            }
+          }
+          if (document.getElementById('context').hasAttribute('style')) {
+            document.getElementById('context').removeAttribute('style');
+            return;
+          }
+          for (const area of nodes) {
+            if (event.pageX >= area.x - 10 && event.pageX <= area.x + area.width + 10 && event.pageY >= area.y - 10 && event.pageY <= area.y + area.height + 10) {
+              return;
+            }
+          }
+          nodes.push({
+            x: event.pageX - 12,
+            y: event.pageY - 12,
+            width: 48,
+            height: 24,
+            id: nodes.length,
+            name: 'NODE',
+            type: '',
+            description: '',
+            attributes: {}
+          });
+          redraw();
+        };
+        window.onunload = () => {
+          localStorage.setItem('nodes', JSON.stringify(nodes));
+          localStorage.setItem('connections', JSON.stringify(connections));
+          localStorage.setItem('types', JSON.stringify(types));
+        };
+        redraw();
+      })();
+    </script>
+  </body>
+</html>
